@@ -57,8 +57,8 @@ public class GeoCoordinateConverter
     }
 
 
-    public void latLon2UTMForCSV(double latitude, double longitude, FileWriter fw) {
+    public String latLon2UTMForCSV(double latitude, double longitude) {
         LatLon2UTM c = new LatLon2UTM();
-        c.convertLatLonToUTMForCSV(latitude, longitude,fw);
+       return c.convertLatLonToUTMForCSV(latitude, longitude);
     }
 }

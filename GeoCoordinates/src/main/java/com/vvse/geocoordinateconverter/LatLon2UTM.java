@@ -1,6 +1,5 @@
 package com.vvse.geocoordinateconverter;
 
-import java.io.FileWriter;
 import java.io.IOException;
 import java.util.Locale;
 
@@ -118,22 +117,13 @@ class LatLon2UTM
         }
     }
 
-    public void convertLatLonToUTMForCSV(double latitude, double longitude, FileWriter fw) {
+    public String convertLatLonToUTMForCSV(double latitude, double longitude) {
         verifyLatLon( latitude, longitude );
         convert( latitude, longitude );
-        // (int) Math.round( northingValue )0
-        try {
-            fw.append( longitudeZoneValue+""+digraphArrayN[ latitudeZoneValue ]);
-            fw.append(',');
-
-            fw.append(""+eastingValue );
-            fw.append(',');
-
-            fw.append(""+northingValue);
-            fw.append(',');
-        } catch (IOException ioException) {
-            ioException.printStackTrace();
-        }
-
-    }
+        // (int) Math.round( northingValue )
+        return String.format( Locale.getDefault( ), "%d%c,%.04f,%.04f",
+                longitudeZoneValue,
+                digraphArrayN[ latitudeZoneValue ],
+                eastingValue ,
+                northingValue);}
 }

@@ -25,19 +25,23 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.documentfile.provider.DocumentFile
 import com.aditya.filebrowser.Constants
 import com.aditya.filebrowser.FileBrowser
+import com.example.locationdemo.utils.SpUtil
 import com.vvse.geocoordinateconverter.GeoCoordinateConverter
-import java.io.File
-import java.io.FileWriter
-import java.io.IOException
+import java.io.*
 import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : AppCompatActivity(),LocationListener {
+    val LOGTAG = "MainActivity"
+    val REQUEST_CODE = 12123
     private var mLocationManager: LocationManager? = null
-    var fileName= "log to file.csv"
+    private var storageUri:Uri?=null
     val formatter = SimpleDateFormat("dd MMM yyyy HH:mm:ss")
+    var fileName= "log to file ${formatter.format(Date())}.csv"
+    var stringdata:String="Horizontal Accuracy,Vertical Accuracy,Latitude,Longitude,Altitude,Update Time,UTM Zone,Easting,Northing\n"
     private var mProvider: LocationProvider? = null
     private var mStarted: Boolean= false
     private var mUserDeniedPermission: Boolean= false
@@ -51,11 +55,10 @@ class MainActivity : AppCompatActivity(),LocationListener {
     /**
      * Android M (6.0.1) and below status and listener
      */
-    private val mLegacyStatus: GpsStatus? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-//        initLocation()
+        openDocumentTree()
         findViewById<ConstraintLayout>(R.id.cl_progressbar).visibility=View.VISIBLE
         findViewById<Button>(R.id.bt_turn_on_gps).setOnClickListener {
            // turnOnLocation()
@@ -63,13 +66,136 @@ class MainActivity : AppCompatActivity(),LocationListener {
             findViewById<ConstraintLayout>(R.id.cl_progressbar).visibility=View.VISIBLE
         }
 
-        findViewById<Button>(R.id.bt_open_log_folder).setOnClickListener {
-            val i = Intent(this, FileBrowser::class.java)
-            //i.putExtra(Constants.INITIAL_DIRECTORY, File(Environment.getExternalStorageDirectory().absolutePath, "/${getString(R.string.app_name)}").absolutePath)
-            i.putExtra(Constants.INITIAL_DIRECTORY, File(getPath(), "/${getString(R.string.app_name)}").absolutePath)
-            i.putExtra(Constants.SELECTION_MODE, Constants.SELECTION_MODES.SINGLE_SELECTION.ordinal);
-            startActivityForResult(i, 10);
+    }
+
+    private fun openDocumentTree() {
+        val uriString = SpUtil.getString(SpUtil.FOLDER_URI, "")
+        when {
+            uriString == "" -> {
+                Log.w(LOGTAG, "uri not stored")
+                askPermission()
+            }
+            arePermissionsGranted(uriString) -> {
+                makeDoc(Uri.parse(uriString))
+            }
+            else -> {
+                Log.w(LOGTAG, "uri permission not stored")
+                askPermission()
+            }
         }
+    }
+
+    private fun makeDoc(dirUri: Uri) {
+        val dir = DocumentFile.fromTreeUri(this, dirUri)
+        if (dir == null || !dir.exists()) {
+            //the folder was probably deleted
+            Log.e(LOGTAG, "no Dir")
+            //according to Commonsware blog, the number of persisted uri permissions is limited
+            //so we should release those we cannot use anymore
+            //https://commonsware.com/blog/2020/06/13/count-your-saf-uri-permission-grants.html
+            releasePermissions(dirUri)
+            //ask user to choose another folder
+            Toast.makeText(this,"Folder deleted, please choose another!",Toast.LENGTH_SHORT).show()
+            openDocumentTree()
+        } else {
+           // alterDocument(dirUri)
+            val file = dir.createFile("*/csv", fileName)
+            if (file != null && file.canWrite()) {
+                Log.d(LOGTAG, "file.uri = ${file.uri.toString()}")
+                alterDocument(file.uri)
+            } else {
+                Log.d(LOGTAG, "no file or cannot write")
+                //consider showing some more appropriate error message
+                Toast.makeText(this,"Write error!",Toast.LENGTH_SHORT).show()
+
+            }
+        }
+    }
+    private fun releasePermissions(uri: Uri) {
+        val flags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        contentResolver.releasePersistableUriPermission(uri,flags)
+        //we should remove this uri from our shared prefs, so we can start over again next time
+        SpUtil.storeString(SpUtil.FOLDER_URI, "")
+    }
+
+
+    //Just a test function to write something into a file, from https://developer.android.com
+    //Please note, that all file IO MUST be done on a background thread. It is not so in this
+    //sample - for the sake of brevity.
+    private fun alterDocument(uri: Uri) {
+        try {
+            storageUri=uri
+
+            contentResolver.openFileDescriptor(uri, "w")?.use { parcelFileDescriptor ->
+                FileOutputStream(parcelFileDescriptor.fileDescriptor).use {
+                    it.write((stringdata).toByteArray())
+                }
+            }
+        } catch (e: FileNotFoundException) {
+            e.printStackTrace()
+        } catch (e: IOException) {
+            e.printStackTrace()
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode == RESULT_OK && requestCode == REQUEST_CODE) {
+            if (data != null) {
+                //this is the uri user has provided us
+                val treeUri: Uri? = data.data
+                if (treeUri != null) {
+                    Log.i(LOGTAG, "got uri: ${treeUri.toString()}")
+                    // here we should do some checks on the uri, we do not want root uri
+                    // because it will not work on Android 11, or perhaps we have some specific
+                    // folder name that we want, etc
+                    if (Uri.decode(treeUri.toString()).endsWith(":")){
+                        Toast.makeText(this,"Cannot use root folder!",Toast.LENGTH_SHORT).show()
+                        // consider asking user to select another folder
+                        return
+                    }
+                    // here we ask the content resolver to persist the permission for us
+                    val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    contentResolver.takePersistableUriPermission(treeUri,
+                            takeFlags)
+
+                    // we should store the string fo further use
+                    SpUtil.storeString(SpUtil.FOLDER_URI, treeUri.toString())
+
+                    //Finally, we can do our file operations
+                    //Please note, that all file IO MUST be done on a background thread. It is not so in this
+                    //sample - for the sake of brevity.
+                    makeDoc(treeUri)
+                }
+            }
+        }
+    }
+
+    // this will present the user with folder browser to select a folder for our data
+    private fun askPermission() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                        or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+        startActivityForResult(intent, REQUEST_CODE)
+    }
+
+    private fun arePermissionsGranted(uriString: String): Boolean {
+        // list of all persisted permissions for our app
+        val list = contentResolver.persistedUriPermissions
+        for (i in list.indices) {
+            val persistedUriString = list[i].uri.toString()
+            //Log.d(LOGTAG, "comparing $persistedUriString and $uriString")
+            if (persistedUriString == uriString && list[i].isWritePermission && list[i].isReadPermission) {
+                //Log.d(LOGTAG, "permission ok")
+                return true
+            }
+        }
+        return false
     }
 
     private fun initLocation() {
@@ -190,89 +316,13 @@ class MainActivity : AppCompatActivity(),LocationListener {
         }
 
         if (!mStarted) {
-            val now = Date()
-            try {
-                //val root = Environment.getExternalStorageDirectory()
-             //   val dir = File(root.absolutePath + "/${getString(R.string.app_name)}")
-                val dir = File(getPath() + "/${getString(R.string.app_name)}")
-                if (!dir.exists()) {
-                    dir.mkdirs()
-                }
-                val gpxfile = File(dir, fileName)
-                var fw:FileWriter= FileWriter(gpxfile);
 
-                fw!!.append("Horizontal Accuracy")
-                fw!!.append(',')
 
-                fw!!.append("Vertical Accuracy")
-                fw!!.append(',')
-
-                fw!!.append("Latitude")
-                fw!!.append(',')
-
-                fw!!.append("Longitude")
-                fw!!.append(',')
-
-                fw!!.append("Altitude")
-                fw!!.append(',')
-
-                fw!!.append("Update Time")
-                fw!!.append(',')
-
-                fw!!.append("UTM Zone")
-                fw!!.append(',')
-
-                fw!!.append("Easting")
-                fw!!.append(',')
-
-                fw!!.append("Northing")
-                fw!!.append(',')
-                fw!!.append('\n');
-                fw!!.close();
-
-            }catch (e:Exception)   {}
-            /*  mLocationManager!!
-                  .requestLocationUpdates(mProvider!!.name, 500, 0.0f, this)*/
-
-            // long minDistance = Long.valueOf(_preferences.getString("pref_key_updateGPSMinDistance", "0"));
-            // long minTime = Long.valueOf(_preferences.getString("pref_key_updateGPSMinTime", "0"));
-            // Register the listener with the Location Manager to receive location updates0
             mLocationManager!!.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
                 500,
-                0f,this
-               //criteria,
-                /*object : LocationListener {
-                    override fun onLocationChanged(it: Location) {
-                        if(it!=null) {
-                            findViewById<ConstraintLayout>(R.id.cl_progressbar).visibility=View.GONE
-                            findViewById<TextView>(R.id.tv_accuracy_value).text = "${it.accuracy} / ${it.getVerticalAccuracyMeters()} m"
-                            findViewById<TextView>(R.id.tv_latitude_value).text = "${it.latitude}"
-                            findViewById<TextView>(R.id.tv_longitude_value).text = "${it.longitude}"
-                            findViewById<TextView>(R.id.tv_altitude_value).text = "${it.altitude}"
-                            findViewById<TextView>(R.id.tv_utm_value).text = "${GeoCoordinateConverter.getInstance().latLon2UTM(it.latitude,it.longitude)}"
-
-                        }
-                    }
-
-                    override fun onStatusChanged(
-                        s: String,
-                        i: Int,
-                        bundle: Bundle
-                    ) {
-                       print("onStatusChanged")
-                    }
-
-                    override fun onProviderEnabled(s: String) {
-                        print("onProviderEnabled")
-                    }
-                    override fun onProviderDisabled(s: String) {
-                        print("onProviderDisabled")
-                    }
-                }*///,null
-            )
+                0f,this)
             mStarted = true
-
 
       }
 
@@ -305,81 +355,19 @@ class MainActivity : AppCompatActivity(),LocationListener {
             findViewById<TextView>(R.id.tv_longitude_value).text = "${it.longitude}"
             findViewById<TextView>(R.id.tv_altitude_value).text = "${it.altitude} ${getString(R.string.above_ellipsoide)}"
             findViewById<TextView>(R.id.tv_utm_value).text = "${GeoCoordinateConverter.getInstance().latLon2UTM(it.latitude,it.longitude)}"
-         /*   var jsonObject=JSONObject();
-            jsonObject.put("horizontal_accuracy" ,"${it.accuracy}")
-            jsonObject.put("vertical_accuracy" ,"${it.getVerticalAccuracyMeters()}")
-            jsonObject.put("latitude" ,"${it.latitude}")
-            jsonObject.put("longitude" ,"${it.longitude}")
-            jsonObject.put("altitude" ,"${it.altitude}")
-            jsonObject.put("update_time" ,"${formatter.format(Date())}")
-            jsonObject.put("utm" ,"${GeoCoordinateConverter.getInstance().latLon2UTM(it.latitude,it.longitude)}")
-            jsonArray.put(jsonObject)*/
 
-            var data= "\n\nHorizontal Accuracy : ${it.accuracy},\n" +
-                    "Vertical Accuracy : ${it.getVerticalAccuracyMeters()},\n" +
-                    "Latitude : ${it.latitude},\n" +
-                    "Longitude : ${it.longitude},\n" +
-                    "Altitude : ${it.altitude},\n" +
-                    "Update Time : ${formatter.format(Date())},\n" +
-                    "${GeoCoordinateConverter.getInstance().latLon2UTM(it.latitude, it.longitude)}"
-            generateNoteOnSD(this,fileName,data,it)
+            writeToCSVFile(it)
         }
     }
 
-    fun generateNoteOnSD(context: Context?, sFileName: String?, sBody: String?, it: Location) {
-try{
-  //  val root = Environment.getExternalStorageDirectory()
-   // val dir = File(root.absolutePath + "/${getString(R.string.app_name)}")
-    val dir = File(getPath() + "/${getString(R.string.app_name)}")
-       val gpxfile = File(dir, fileName)
-        var fw = FileWriter(gpxfile,true);
-        fw!!.append("${it.accuracy}")
-        fw!!.append(',')
-
-        fw!!.append("${it.getVerticalAccuracyMeters()}")
-        fw!!.append(',')
-
-        fw!!.append("${it.latitude}")
-        fw!!.append(',')
-
-        fw!!.append("${it.longitude}")
-        fw!!.append(',')
-
-        fw!!.append("${it.altitude}")
-        fw!!.append(',')
-
-        fw!!.append("${formatter.format(Date())}")
-        fw!!.append(',')
-
-        GeoCoordinateConverter.getInstance().latLon2UTMForCSV(it.latitude, it.longitude,fw!!)
-
-
-        fw!!.append('\n');
-        fw!!.close();
-
-           /* val writer = FileWriter(gpxfile, true)
-
-            writer.append("""
-    ${sBody.toString()}
-    
-    
-    """.trimIndent())
-            writer.flush()
-            writer.close()*/
-           // Toast.makeText(this, "Data has been written to Report File", Toast.LENGTH_SHORT).show()
-        } catch (e: IOException) {
-            Toast.makeText(this, "${e.message}", Toast.LENGTH_SHORT).show()
-
+    fun writeToCSVFile(loc: Location) {
+       stringdata="${stringdata}${loc.accuracy},${loc.getVerticalAccuracyMeters()},${loc.latitude},${loc.longitude},${loc.altitude},${formatter.format(Date())},${GeoCoordinateConverter.getInstance().latLon2UTMForCSV(loc.latitude, loc.longitude)}\n"
+    if(storageUri!=null) {
+        contentResolver.openFileDescriptor(storageUri!!, "rw")?.use { parcelFileDescriptor ->
+            FileOutputStream(parcelFileDescriptor.fileDescriptor).use {
+                it.write((stringdata).toByteArray())
+            }
         }
     }
-
-    @Throws(IOException::class)
-    private fun getPath(): String {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val resolver: ContentResolver = contentResolver
-           return applicationContext.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)!!.absolutePath;
-        } else {
-          return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).toString()
-        }
     }
 }
