@@ -10,9 +10,6 @@ import android.location.*
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.MediaStore
-import android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
 import android.provider.Settings
 import android.util.Log
 import android.view.View
@@ -26,10 +23,8 @@ import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
-import com.aditya.filebrowser.Constants
-import com.aditya.filebrowser.FileBrowser
+import com.example.locationdemo.geocoordinateconverter.GeoCoordinateConverter
 import com.example.locationdemo.utils.SpUtil
-import com.vvse.geocoordinateconverter.GeoCoordinateConverter
 import java.io.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -354,14 +349,14 @@ class MainActivity : AppCompatActivity(),LocationListener {
             findViewById<TextView>(R.id.tv_latitude_value).text = "${it.latitude}"
             findViewById<TextView>(R.id.tv_longitude_value).text = "${it.longitude}"
             findViewById<TextView>(R.id.tv_altitude_value).text = "${it.altitude} ${getString(R.string.above_ellipsoide)}"
-            findViewById<TextView>(R.id.tv_utm_value).text = "${GeoCoordinateConverter.getInstance().latLon2UTM(it.latitude,it.longitude)}"
+            findViewById<TextView>(R.id.tv_utm_value).text = "${GeoCoordinateConverter.instance!!.latLon2UTM(it.latitude,it.longitude)}"
 
             writeToCSVFile(it)
         }
     }
 
     fun writeToCSVFile(loc: Location) {
-       stringdata="${stringdata}${loc.accuracy},${loc.getVerticalAccuracyMeters()},${loc.latitude},${loc.longitude},${loc.altitude},${formatter.format(Date())},${GeoCoordinateConverter.getInstance().latLon2UTMForCSV(loc.latitude, loc.longitude)}\n"
+       stringdata="${stringdata}${loc.accuracy},${loc.getVerticalAccuracyMeters()},${loc.latitude},${loc.longitude},${loc.altitude},${formatter.format(Date())},${GeoCoordinateConverter.instance!!.latLon2UTMForCSV(loc.latitude, loc.longitude)}\n"
     if(storageUri!=null) {
         contentResolver.openFileDescriptor(storageUri!!, "rw")?.use { parcelFileDescriptor ->
             FileOutputStream(parcelFileDescriptor.fileDescriptor).use {

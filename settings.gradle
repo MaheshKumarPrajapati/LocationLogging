@@ -1,2 +1,2 @@
-include ':GeoCoordinates'
+//nclude ':GeoCoordinates'
 include ':app'
