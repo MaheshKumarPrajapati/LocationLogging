@@ -32,11 +32,11 @@ import java.util.*
 class MainActivity : AppCompatActivity(),LocationListener {
     val LOGTAG = "MainActivity"
     val REQUEST_CODE = 12123
-    private var mLocationManager: LocationManager? = null
     private var storageUri:Uri?=null
     val formatter = SimpleDateFormat("dd MMM yyyy HH:mm:ss")
     var fileName= "log to file ${formatter.format(Date())}.csv"
     var stringdata:String="Horizontal Accuracy,Vertical Accuracy,Latitude,Longitude,Altitude,Update Time,UTM Zone,Easting,Northing\n"
+    private var mLocationManager: LocationManager? = null
     private var mProvider: LocationProvider? = null
     private var mStarted: Boolean= false
     private var mUserDeniedPermission: Boolean= false
